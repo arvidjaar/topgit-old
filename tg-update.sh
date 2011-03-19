@@ -3,10 +3,10 @@
 # (c) Petr Baudis <pasky@suse.cz>  2008
 # GPLv2
 
-name=
-all=
-pattern=
-current=
+name= # Branch to update
+all= # Update all branches
+pattern= # Branch selection filter for -a
+current= # Branch we are currently on
 
 
 ## Parse options
@@ -31,11 +31,15 @@ while [ -n "$1" ]; do
 done
 [ -z "$pattern" ] && pattern=refs/top-bases
 
-current="$(git symbolic-ref HEAD | sed 's#^refs/\(heads\|top-bases\)/##')"
-if [ -z "$all" -a -z "$name" ]; then
-	name="$current"
-	base_rev="$(git rev-parse --short --verify "refs/top-bases/$name" 2>/dev/null)" ||
-	die "not a TopGit-controlled branch"
+current="$(git symbolic-ref HEAD 2>/dev/null | sed 's#^refs/\(heads\|top-bases\)/##')"
+if [ -z "$all" ]; then
+	if [ -z "$name" ]; then
+		name="$current"
+		base_rev="$(git rev-parse --short --verify "refs/top-bases/$name" 2>/dev/null)" ||
+			die "not a TopGit-controlled branch"
+	fi
+else
+	[ -n "$current" ] || die "cannot return to detached tree; switch to another branch"
 fi
 
 update_branch() {
@@ -45,7 +49,14 @@ update_branch() {
 	depcheck="$(get_temp tg-depcheck)"
 	missing_deps=
 	needs_update "$name" >"$depcheck" || :
-	[ -z "$missing_deps" ] || { info "some dependencies are missing: $missing_deps; skpping"; return;  }
+	if [ -n "$missing_deps" ]; then
+	   	if [ -z "$all" ]; then
+		       	die "some dependencies are missing: $missing_deps"
+		else
+		       	info "some dependencies are missing: $missing_deps; skipping"
+		       	return
+		fi
+	fi
 	if [ -s "$depcheck" ]; then
 		# We need to switch to the base branch
 		# ...but only if we aren't there yet (from failed previous merge)
@@ -79,10 +90,20 @@ update_branch() {
 						# The merge got stuck! Let the user fix it up.
 						info "You are in a subshell. If you abort the merge,"
 						info "use \`exit 1\` to abort the recursive update altogether."
-						if ! sh -i </dev/tty; then
-							info "Ok, you aborted the merge. Now, you just need to"
-							info "switch back to some sane branch using \`git checkout\`."
-							exit 3
+						info "Use \`exit 2\` to skip updating this branch and continue."
+						if sh -i </dev/tty; then
+							# assume user fixed it
+							continue
+						else
+							ret=$?
+							if [ $ret -eq 2 ]; then
+								info "Ok, I will try to continue without updating this branch."
+								break
+							else
+								info "Ok, you aborted the merge. Now, you just need to"
+								info "switch back to some sane branch using \`git checkout\`."
+								exit 3
+							fi
 						fi
 					done
 					)
