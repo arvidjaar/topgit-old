@@ -4,7 +4,10 @@
 # GPLv2
 
 force= # Whether to delete non-empty branch, or branch where only the base is left.
-name=
+name= # Branch to delete
+to_update= # Branches that depend on $name and need dependencies adjusted
+deps_to_push= # Dependencies from deleted brach
+current= # Branch we are currently on
 
 
 ## Parse options
@@ -35,39 +38,50 @@ branchrev="$(git rev-parse --verify "$name" 2>/dev/null)" ||
 	fi
 baserev="$(git rev-parse --verify "refs/top-bases/$name" 2>/dev/null)" ||
 	die "not a TopGit topic branch: $name"
+
+current="$(git symbolic-ref HEAD 2>/dev/null | sed 's#^refs/\(heads\|top-bases\)/##')"
+[ -n "$current" ] || die "cannot return to detached tree; switch to another branch"
+
 ! git symbolic-ref HEAD >/dev/null || [ "$(git symbolic-ref HEAD)" != "refs/heads/$name" ] ||
 	die "cannot delete your current branch"
 
 [ -z "$force" ] && { branch_empty "$name" || die "branch is non-empty: $name"; }
 
-tg summary --deps | while read _branch _deps; do
-	case "$name" in
-		" $_deps " )
-			_to_update="$_to_update $_branch"
+depsfile="$(get_temp tg-delete-deps)"
+tg summary --deps > "$depsfile" 2>/dev/null
+
+while read branch deps; do
+	case " $deps " in
+		*" $name "* )
+			to_update="$to_update $branch"
 		;;
 	esac
-	[ "$_branch" = "$name" ] && { _deps_to_push="$(echo "$_deps" | tr ' ' '\n')"; break; }
-done
+	[ "$branch" = "$name" ] && deps_to_push="$deps_to_push $branch"
+done < "$depsfile"
 
-for _b in $(tg summary -t 2> /dev/null); do
-	case "_b" in
-		" $_to_update " )
+deps_to_push="$(echo "$deps_to_push" | tr ' ' '\n') | sort -u"
+
+for b in $(tg summary -t 2> /dev/null); do
+	case " $to_update " in
+		*" $b "* )
 			:
 		;;
 		* )
 			continue
 		;;
 	esac
-	git checkout $_b || die "Can't checkout $_b"
+	git checkout -q "$b" || die "Can't checkout $b"
 
-	cat .topdeps | while read _dep; do
-		[ $_dep = $name ] && echo "$_deps_to_push" || echo "$_dep"
-	done > /tmp/temp-topgit
-	mv /tmp/temp-topgit .topdeps
+	cat .topdeps | while read dep; do
+		[ $dep = $name ] && echo "$deps_to_push" || echo "$dep"
+	done > "$depsfile"
+	cat "$depsfile" > .topdeps
 	git add .topdeps
-	git commit -m "TopGIT: updating dependecies from $name to $_deps_to_push"
-	tg update || die "Update of $_b failed; fix it manually"
+	git commit -m "TopGIT: updating dependecies from $name to $deps_to_push"
+	tg update || die "Update of $b failed; fix it manually"
 done
+
+git checkout -q "$current" || die "failed to return to $current"
 
 # Quick'n'dirty check whether branch is required
 #[ -z "$force" ] && { tg summary --deps | cut -d' ' -f2- | tr ' ' '\n' | fgrep -xq -- "$name" && die "some branch depends on $name"; }
