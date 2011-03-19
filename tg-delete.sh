@@ -40,8 +40,37 @@ baserev="$(git rev-parse --verify "refs/top-bases/$name" 2>/dev/null)" ||
 
 [ -z "$force" ] && { branch_empty "$name" || die "branch is non-empty: $name"; }
 
+tg summary --deps | while read _branch _deps; do
+	case "$name" in
+		" $_deps " )
+			_to_update="$_to_update $_branch"
+		;;
+	esac
+	[ "$_branch" = "$name" ] && { _deps_to_push="$(echo "$_deps" | tr ' ' '\n')"; break; }
+done
+
+for _b in $(tg summary -t 2> /dev/null); do
+	case "_b" in
+		" $_to_update " )
+			:
+		;;
+		* )
+			continue
+		;;
+	esac
+	git checkout $_b || die "Can't checkout $_b"
+
+	cat .topdeps | while read _dep; do
+		[ $_dep = $name ] && echo "$_deps_to_push" || echo "$_dep"
+	done > /tmp/temp-topgit
+	mv /tmp/temp-topgit .topdeps
+	git add .topdeps
+	git commit -m "TopGIT: updating dependecies from $name to $_deps_to_push"
+	tg update || die "Update of $_b failed; fix it manually"
+done
+
 # Quick'n'dirty check whether branch is required
-[ -z "$force" ] && { tg summary --deps | cut -d' ' -f2- | tr ' ' '\n' | fgrep -xq -- "$name" && die "some branch depends on $name"; }
+#[ -z "$force" ] && { tg summary --deps | cut -d' ' -f2- | tr ' ' '\n' | fgrep -xq -- "$name" && die "some branch depends on $name"; }
 
 ## Wipe out
 
