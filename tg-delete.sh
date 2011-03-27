@@ -50,35 +50,56 @@ current="$(git symbolic-ref HEAD 2>/dev/null | sed 's#^refs/\(heads\|top-bases\)
 depsfile="$(get_temp tg-delete-deps)"
 tg summary --deps > "$depsfile" 2>/dev/null
 
-while read branch deps; do
-	case " $deps " in
-		*" $name "* )
-			to_update="$to_update $branch"
-		;;
-	esac
-	[ "$branch" = "$name" ] && deps_to_push="$deps_to_push $branch"
+while read branch dep; do
+	[ "$dep" = "$name" ]    && to_update="$to_update $branch"
+	[ "$branch" = "$name" ] && deps_to_push="$deps_to_push $dep"
 done < "$depsfile"
+deps_to_push=${deps_to_push# }
 
-deps_to_push="$(echo "$deps_to_push" | tr ' ' '\n') | sort -u"
+for b in $to_update; do
+	git checkout -q "$b" || die "Can't update $b dependencies - checkout failed"
 
-for b in $(tg summary -t 2> /dev/null); do
-	case " $to_update " in
-		*" $b "* )
-			:
-		;;
-		* )
-			continue
-		;;
-	esac
-	git checkout -q "$b" || die "Can't checkout $b"
-
-	cat .topdeps | while read dep; do
-		[ $dep = $name ] && echo "$deps_to_push" || echo "$dep"
+	deps=
+	sed -e "s@^$name\$@$deps_to_push@" .topdeps | tr ' ' '\n' | while read dep; do
+		case " $deps " in
+			*" $dep "* )
+				:
+			;;
+			* )
+				deps="$deps $dep"
+				echo $dep
+			;;
+		esac
 	done > "$depsfile"
 	cat "$depsfile" > .topdeps
 	git add .topdeps
-	git commit -m "TopGIT: updating dependecies from $name to $deps_to_push"
-	tg update || die "Update of $b failed; fix it manually"
+	(
+	while ! git commit -m "TopGIT: updating dependecies from $name to $deps_to_push"; do
+		# Commit failed
+		info "You are in a subshell. Fix commit problem and"
+		info "use \`exit\` to continue updating dependencies."
+		info "Use \`exit 1\` to abort updating dependencies altogether."
+		info "Use \`exit 2\` to skip branch \`$b\` and continue."
+		if sh -i </dev/tty; then
+			# assume user fixed it
+			:
+		else
+			ret=$?
+			git reset --hard
+			if [ $ret -eq 2 ]; then
+				info "Ok, I will try to continue without updating this branch."
+				continue 2
+			else
+				info "Aborting update of dependencies."
+				info "You are left on branch \`$b\`."
+				exit 3
+			fi
+		fi
+	done
+	)
+	info "updated dependecies for \`$b' from \`$name' to \`$deps_to_push'"
+	info "use \`tg update $b' to ensure it is up to date"
+	#tg update || die "Update of $b failed; fix it manually"
 done
 
 git checkout -q "$current" || die "failed to return to $current"
