@@ -39,11 +39,16 @@ branchrev="$(git rev-parse --verify "$name" 2>/dev/null)" ||
 baserev="$(git rev-parse --verify "refs/top-bases/$name" 2>/dev/null)" ||
 	die "not a TopGit topic branch: $name"
 
+! git symbolic-ref HEAD >/dev/null || [ "$(git symbolic-ref HEAD)" != "refs/heads/$name" ] ||
+	die "cannot delete your current branch"
+
 current="$(git symbolic-ref HEAD 2>/dev/null | sed 's#^refs/\(heads\|top-bases\)/##')"
 [ -n "$current" ] || die "cannot return to detached tree; switch to another branch"
 
-! git symbolic-ref HEAD >/dev/null || [ "$(git symbolic-ref HEAD)" != "refs/heads/$name" ] ||
-	die "cannot delete your current branch"
+## Make sure our tree is clean
+
+git update-index --ignore-submodules --refresh || die "the working tree is not clean"
+git diff-index --quiet --cached -r --ignore-submodules HEAD -- || die "the index is not clean"
 
 [ -z "$force" ] && { branch_empty "$name" || die "branch is non-empty: $name"; }
 
@@ -56,8 +61,12 @@ while read branch dep; do
 done < "$depsfile"
 deps_to_push=${deps_to_push# }
 
+[ -n "$to_update" -a -z "$deps_to_push" -a -z "$force" ] &&
+	die "branch \`$name\` has no dependencies"
+
 for b in $to_update; do
-	git checkout -q "$b" || die "Can't update $b dependencies - checkout failed"
+	info "Updating \`$b\` dependencies..."
+	git checkout "$b" || die "cannot checkout \`$b\`."
 
 	deps=
 	sed -e "s@^$name\$@$deps_to_push@" .topdeps | tr ' ' '\n' | while read dep; do
@@ -74,7 +83,7 @@ for b in $to_update; do
 	cat "$depsfile" > .topdeps
 	git add .topdeps
 	(
-	while ! git commit -m "TopGIT: updating dependecies from $name to $deps_to_push"; do
+	while ! git commit -m "TopGIT: updating dependencies from \`$name\` to \`$deps_to_push\`"; do
 		# Commit failed
 		info "You are in a subshell. Fix commit problem and"
 		info "use \`exit\` to continue updating dependencies."
@@ -82,7 +91,7 @@ for b in $to_update; do
 		info "Use \`exit 2\` to skip branch \`$b\` and continue."
 		if sh -i </dev/tty; then
 			# assume user fixed it
-			:
+			break
 		else
 			ret=$?
 			git reset --hard
@@ -90,8 +99,8 @@ for b in $to_update; do
 				info "Ok, I will try to continue without updating this branch."
 				continue 2
 			else
-				info "Aborting update of dependencies."
-				info "You are left on branch \`$b\`."
+				info "Aborting update of dependencies. You are now on branch \`$b\`."
+
 				exit 3
 			fi
 		fi
