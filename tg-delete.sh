@@ -69,7 +69,7 @@ for b in $to_update; do
 	git checkout "$b" || die "cannot checkout \`$b\`."
 
 	deps=
-	sed -e "s@^$name\$@$deps_to_push@" .topdeps | tr ' ' '\n' | while read dep; do
+	sed -e "s@^$name\$@$deps_to_push@" -e '/^[[:space:]]*$/d' .topdeps | tr ' ' '\n' | while read dep; do
 		case " $deps " in
 			*" $dep "* )
 				:
@@ -112,9 +112,6 @@ for b in $to_update; do
 done
 
 git checkout -q "$current" || die "failed to return to $current"
-
-# Quick'n'dirty check whether branch is required
-#[ -z "$force" ] && { tg summary --deps | cut -d' ' -f2- | tr ' ' '\n' | fgrep -xq -- "$name" && die "some branch depends on $name"; }
 
 ## Wipe out
 
