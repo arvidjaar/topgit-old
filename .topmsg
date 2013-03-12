@@ -1,7 +1,0 @@
-From: Andrey Borzenkov <arvidjaar@gmail.com>
-Subject: tg-delete: update dependencies of dependent branches
-
-When deleting empty branch propagate its dependencies into dependent
-branches unless -f was specified.
-
-Signed-off-by: Andrey Borzenkov <arvidjaar@gmail.com>
