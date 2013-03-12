@@ -3,7 +3,7 @@
 # (c) Petr Baudis <pasky@suse.cz>  2008
 # GPLv2
 
-TG_VERSION=0.8
+TG_VERSION=0.9
 
 ## Auxiliary functions
 
@@ -370,7 +370,7 @@ do_help()
 		done
 
 		echo "TopGit v$TG_VERSION - A different patch queue manager"
-		echo "Usage: tg [-r REMOTE] ($cmds|help) ..."
+		echo "Usage: tg ( help [<command>] | [-r <remote>] ($cmds) ...)"
 	elif [ -r "@cmddir@"/tg-$1 ] ; then
 		setup_pager
 		@cmddir@/tg-$1 -h 2>&1 || :
@@ -448,6 +448,8 @@ help|--help|-h)
 *)
         if [ -n "$cmd" ]; then
             set -e
+            # suppress the merge log editor feature since git 1.7.10
+            export GIT_MERGE_AUTOEDIT=no
             git_dir="$(git rev-parse --git-dir)"
             root_dir="$(git rev-parse --show-cdup)"; root_dir="${root_dir:-.}"
 # Make sure root_dir doesn't end with a trailing slash.
